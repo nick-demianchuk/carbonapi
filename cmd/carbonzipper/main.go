@@ -62,10 +62,10 @@ func main() {
 		logger.Fatal("no Backends loaded -- exiting")
 	}
 
-	if configErr := zapwriter.ApplyConfig(config.Logger); configErr != nil {
+	if err := zapwriter.ApplyConfig(config.Logger); err != nil {
 		logger.Fatal("Failed to apply config",
 			zap.Any("config", config.Logger),
-			zap.Error(configErr),
+			zap.Error(err),
 		)
 	}
 	expvar.NewString("BuildVersion").Set(BuildVersion)

@@ -95,7 +95,7 @@ func DateParamToEpoch(s string, qtz string, d int64, defaultTimeZone *time.Locat
 
 	var tz = defaultTimeZone
 	if qtz != "" {
-		if z, loadErr := time.LoadLocation(qtz); loadErr != nil {
+		if z, err := time.LoadLocation(qtz); err != nil {
 			tz = z
 		}
 	}
