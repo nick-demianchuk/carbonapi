@@ -179,8 +179,6 @@ func (e *expr) Metrics() []MetricRequest {
 				for i := range r {
 					r[i].From -= offs
 				}
-			default:
-				return nil
 			}
 		}
 		return r
