@@ -337,25 +337,25 @@ func parseExprWithoutPipe(e string) (Expr, string, error) {
 	for len(e) > 1 && e[0] == ' ' {
 		e = e[1:]
 	}
-fmt.Println(e)
+
 	if len(e) == 0 {
 		return nil, "", ErrMissingExpr
 	}
 
 	if '0' <= e[0] && e[0] <= '9' || e[0] == '-' || e[0] == '+' {
-		val, tail, err := parseConst(e)
-		r, _ := utf8.DecodeRuneInString(tail)
+		val, e, err := parseConst(e)
+		r, _ := utf8.DecodeRuneInString(e)
 		if !unicode.IsLetter(r) {
-			return &expr{val: val, etype: EtConst}, tail, err
+			return &expr{val: val, etype: EtConst}, e, err
 		}
 	}
 
 	if e[0] == '\'' || e[0] == '"' {
-		val, tail, err := parseString(e)
-		return &expr{valStr: val, etype: EtString}, tail, err
+		val, e, err := parseString(e)
+		return &expr{valStr: val, etype: EtString}, e, err
 	}
-	var name string
-	name, e = parseName(e)
+
+	name, e := parseName(e)
 
 	if strings.ToLower(name) == "false" || strings.ToLower(name) == "true" {
 		return &expr{valStr: name, etype: EtString, target: name}, e, nil
@@ -365,10 +365,12 @@ fmt.Println(e)
 	}
 
 	if e != "" && e[0] == '(' {
-		var err error
-
 		exp := &expr{target: name, etype: EtFunc}
-		exp.argString, exp.args, exp.namedArgs, e, err = parseArgList(e)
+
+		argString, posArgs, namedArgs, e, err := parseArgList(e)
+		exp.argString = argString
+		exp.args = posArgs
+		exp.namedArgs = namedArgs
 
 		return exp, e, err
 	}
@@ -379,7 +381,6 @@ fmt.Println(e)
 // ParseExpr actually do all the parsing. It returns expression, original string and error (if any)
 func ParseExpr(e string) (Expr, string, error) {
 	exp, e, err := parseExprWithoutPipe(e)
-fmt.Println(exp, e, err)
 	if err != nil {
 		return exp, e, err
 	}
@@ -395,9 +396,7 @@ func pipe(exp *expr, e string) (*expr, string, error) {
 		return exp, e, nil
 	}
 
-fmt.Println(e)
 	wr, e, err := parseExprWithoutPipe(e[1:])
-fmt.Println(wr, e, err)
 	if err != nil {
 		return exp, e, err
 	}
