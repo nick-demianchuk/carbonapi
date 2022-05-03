@@ -30,7 +30,6 @@ import (
 	"go.opentelemetry.io/otel/api/kv"
 	"go.opentelemetry.io/otel/api/trace"
 
-	"github.com/lomik/zapwriter"
 	"go.uber.org/zap"
 )
 
@@ -48,18 +47,12 @@ const (
 	formatTypeProtobuf3 = "protobuf3"
 )
 
-func (app *App) findHandler(w http.ResponseWriter, req *http.Request) {
+func (app *App) findHandler(w http.ResponseWriter, req *http.Request, logger *zap.Logger) {
 	t0 := time.Now()
 
 	ctx, cancel := context.WithTimeout(req.Context(), app.config.Timeouts.Global)
 	defer cancel()
 	span := trace.SpanFromContext(ctx)
-
-	// TODO (grzkv): Pass logger from above
-	logger := zapwriter.Logger("find").With(
-		zap.String("handler", "find"),
-		zap.String("carbonapi_uuid", util.GetUUID(ctx)),
-	)
 
 	if ce := logger.Check(zap.DebugLevel, "got find request"); ce != nil {
 		ce.Write(
@@ -74,13 +67,13 @@ func (app *App) findHandler(w http.ResponseWriter, req *http.Request) {
 	app.prometheusMetrics.Requests.Inc()
 	Metrics.FindRequests.Add(1)
 
-	// TODO (grzkv): Pass logger from above
-	accessLogger := zapwriter.Logger("access").With(
+	logger = logger.With(
 		zap.String("handler", "find"),
 		zap.String("format", format),
 		zap.String("target", originalQuery),
 		zap.String("carbonapi_uuid", util.GetUUID(ctx)),
 	)
+
 	span.SetAttributes(
 		kv.String("graphite.format", format),
 		kv.String("graphite.target", originalQuery),
@@ -110,12 +103,12 @@ func (app *App) findHandler(w http.ResponseWriter, req *http.Request) {
 			// returned a 404 code to Prometheus.
 
 			app.prometheusMetrics.FindNotFound.Inc()
-			accessLogger.Info("not found",
+			logger.Info("not found",
 				zap.Error(err))
 			// TODO (grzkv) Should we return here?
 		} else {
 			code := http.StatusInternalServerError
-			accessLogger.Error("find failed",
+			logger.Error("find failed",
 				zap.Int("http_code", code),
 				zap.Duration("runtime_seconds", time.Since(t0)),
 				zap.Error(err),
@@ -161,7 +154,7 @@ func (app *App) findHandler(w http.ResponseWriter, req *http.Request) {
 
 	if err != nil {
 		http.Error(w, "error marshaling data", http.StatusInternalServerError)
-		accessLogger.Error("render failed",
+		logger.Error("render failed",
 			zap.Int("http_code", http.StatusInternalServerError),
 			zap.String("reason", "error marshaling data"),
 			zap.Duration("runtime_seconds", time.Since(t0)),
@@ -181,7 +174,7 @@ func (app *App) findHandler(w http.ResponseWriter, req *http.Request) {
 	app.prometheusMetrics.Responses.WithLabelValues(strconv.Itoa(http.StatusOK), "find").Inc()
 
 	if writeErr != nil {
-		accessLogger.Error("error writing the response",
+		logger.Error("error writing the response",
 			zap.Int("http_code", 499),
 			zap.Duration("runtime_seconds", time.Since(t0)),
 			zap.Error(writeErr),
@@ -189,26 +182,19 @@ func (app *App) findHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	accessLogger.Info("request served",
+	logger.Info("request served",
 		zap.Int("http_code", http.StatusOK),
 		zap.Duration("runtime_seconds", time.Since(t0)),
 	)
 }
 
-func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
+func (app *App) renderHandler(w http.ResponseWriter, req *http.Request, logger *zap.Logger) {
 	t0 := time.Now()
 	memoryUsage := 0
 
 	ctx, cancel := context.WithTimeout(req.Context(), app.config.Timeouts.Global)
 	defer cancel()
 	span := trace.SpanFromContext(ctx)
-
-	// TODO (grzkv): Pass logger from above
-	logger := zapwriter.Logger("render").With(
-		zap.Int("memory_usage_bytes", memoryUsage),
-		zap.String("handler", "render"),
-		zap.String("carbonapi_uuid", util.GetUUID(ctx)),
-	)
 
 	if ce := logger.Check(zap.DebugLevel, "got render request"); ce != nil {
 		ce.Write(
@@ -220,8 +206,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 	app.prometheusMetrics.Requests.Inc()
 	Metrics.RenderRequests.Add(1)
 
-	// TODO (grzkv): Pass logger from above
-	accessLogger := zapwriter.Logger("access").With(
+	logger = logger.With(
 		zap.String("handler", "render"),
 		zap.String("carbonapi_uuid", util.GetUUID(ctx)),
 	)
@@ -229,7 +214,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 	err := req.ParseForm()
 	if err != nil {
 		http.Error(w, "failed to parse arguments", http.StatusBadRequest)
-		accessLogger.Error("request failed",
+		logger.Error("request failed",
 			zap.Int("memory_usage_bytes", memoryUsage),
 			zap.String("reason", "failed to parse arguments"),
 			zap.Int("http_code", http.StatusBadRequest),
@@ -243,7 +228,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	target := req.FormValue("target")
 	format := req.FormValue("format")
-	accessLogger = accessLogger.With(
+	logger = logger.With(
 		zap.String("format", format),
 		zap.String("target", target),
 	)
@@ -254,7 +239,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 	from, err := strconv.ParseInt(req.FormValue("from"), 10, 64)
 	if err != nil {
 		http.Error(w, "from is not a integer", http.StatusBadRequest)
-		accessLogger.Error("request failed",
+		logger.Error("request failed",
 			zap.Int("memory_usage_bytes", memoryUsage),
 			zap.String("reason", "from is not a integer"),
 			zap.Int("http_code", http.StatusBadRequest),
@@ -271,7 +256,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 	until, err := strconv.ParseInt(req.FormValue("until"), 10, 64)
 	if err != nil {
 		http.Error(w, "until is not a integer", http.StatusBadRequest)
-		accessLogger.Error("request failed",
+		logger.Error("request failed",
 			zap.Int("memory_usage_bytes", memoryUsage),
 			zap.String("reason", "until is not a integer"),
 			zap.Int("http_code", http.StatusBadRequest),
@@ -292,7 +277,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	if target == "" {
 		http.Error(w, "empty target", http.StatusBadRequest)
-		accessLogger.Error("request failed",
+		logger.Error("request failed",
 			zap.Int("memory_usage_bytes", memoryUsage),
 			zap.String("reason", "empty target"),
 			zap.Int("http_code", http.StatusBadRequest),
@@ -309,7 +294,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 	request.Trace.OutDuration = app.prometheusMetrics.RenderOutDurationExp
 	bs := app.filterBackendByTopLevelDomain(request.Targets)
 	bs = backend.Filter(bs, request.Targets)
-	metrics, stats, errs := backend.Renders(ctx, bs, request, app.config.RenderReplicaMismatchConfig)
+	metrics, stats, errs := backend.Renders(ctx, bs, request, app.config.RenderReplicaMismatchConfig, logger)
 	app.prometheusMetrics.Renders.Add(float64(stats.DataPointCount))
 	app.prometheusMetrics.RenderMismatches.Add(float64(stats.MismatchCount))
 	app.prometheusMetrics.RenderFixedMismatches.Add(float64(stats.FixedMismatchCount))
@@ -338,7 +323,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 		}
 
 		http.Error(w, msg, code)
-		accessLogger.Error("request failed",
+		logger.Error("request failed",
 			zap.Int("memory_usage_bytes", memoryUsage),
 			zap.Error(err),
 			zap.Int("http_code", code),
@@ -371,7 +356,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	if err != nil {
 		http.Error(w, "error marshaling data", http.StatusInternalServerError)
-		accessLogger.Error("render failed",
+		logger.Error("render failed",
 			zap.Int("http_code", http.StatusInternalServerError),
 			zap.String("reason", "error marshaling data"),
 			zap.Duration("runtime_seconds", time.Since(t0)),
@@ -397,7 +382,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if writeErr != nil {
-		accessLogger.Error("error writing the response",
+		logger.Error("error writing the response",
 			zap.Int("http_code", 499),
 			zap.Duration("runtime_seconds", time.Since(t0)),
 			zap.Error(writeErr),
@@ -405,7 +390,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	accessLogger.Info("request served",
+	logger.Info("request served",
 		zap.Int("memory_usage_bytes", memoryUsage),
 		zap.Int("http_code", http.StatusOK),
 		zap.Duration("runtime_seconds", time.Since(t0)),
@@ -413,14 +398,13 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request) {
 	)
 }
 
-func (app *App) infoHandler(w http.ResponseWriter, req *http.Request) {
+func (app *App) infoHandler(w http.ResponseWriter, req *http.Request, logger *zap.Logger) {
 	t0 := time.Now()
 
 	ctx, cancel := context.WithTimeout(req.Context(), app.config.Timeouts.Global)
 	defer cancel()
 
-	// TODO (grzkv): Pass logger from above
-	logger := zapwriter.Logger("info").With(
+	logger = logger.With(
 		zap.String("handler", "info"),
 		zap.String("carbonapi_uuid", util.GetUUID(ctx)),
 	)
@@ -435,15 +419,10 @@ func (app *App) infoHandler(w http.ResponseWriter, req *http.Request) {
 	app.prometheusMetrics.Requests.Inc()
 	Metrics.InfoRequests.Add(1)
 
-	// TODO (grzkv): Pass logger from above
-	accessLogger := zapwriter.Logger("access").With(
-		zap.String("handler", "info"),
-		zap.String("carbonapi_uuid", util.GetUUID(ctx)),
-	)
 	err := req.ParseForm()
 	if err != nil {
 		http.Error(w, "failed to parse arguments", http.StatusBadRequest)
-		accessLogger.Error("request failed",
+		logger.Error("request failed",
 			zap.String("reason", "failed to parse arguments"),
 			zap.Int("http_code", http.StatusBadRequest),
 			zap.Duration("runtime_seconds", time.Since(t0)),
@@ -457,13 +436,13 @@ func (app *App) infoHandler(w http.ResponseWriter, req *http.Request) {
 	target := req.FormValue("target")
 	format := req.FormValue("format")
 
-	accessLogger = accessLogger.With(
+	logger = logger.With(
 		zap.String("target", target),
 		zap.String("format", format),
 	)
 
 	if target == "" {
-		accessLogger.Error("info failed",
+		logger.Error("info failed",
 			zap.Int("http_code", http.StatusBadRequest),
 			zap.String("reason", "empty target"),
 			zap.Duration("runtime_seconds", time.Since(t0)),
@@ -483,7 +462,7 @@ func (app *App) infoHandler(w http.ResponseWriter, req *http.Request) {
 
 		var notFound types.ErrNotFound
 		if errors.As(err, &notFound) {
-			accessLogger.Error("info not found",
+			logger.Error("info not found",
 				zap.Int("http_code", http.StatusNotFound),
 				zap.Error(err),
 				zap.Duration("runtime_seconds", time.Since(t0)),
@@ -492,7 +471,7 @@ func (app *App) infoHandler(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		accessLogger.Error("info failed",
+		logger.Error("info failed",
 			zap.Int("http_code", http.StatusInternalServerError),
 			zap.Error(err),
 			zap.Duration("runtime_seconds", time.Since(t0)),
@@ -518,7 +497,7 @@ func (app *App) infoHandler(w http.ResponseWriter, req *http.Request) {
 
 	if err != nil {
 		http.Error(w, "error marshaling data", http.StatusInternalServerError)
-		accessLogger.Error("info failed",
+		logger.Error("info failed",
 			zap.Int("http_code", http.StatusInternalServerError),
 			zap.String("reason", "error marshaling data"),
 			zap.Duration("runtime_seconds", time.Since(t0)),
@@ -536,7 +515,7 @@ func (app *App) infoHandler(w http.ResponseWriter, req *http.Request) {
 	app.prometheusMetrics.Responses.WithLabelValues(strconv.Itoa(http.StatusOK), "info").Inc()
 
 	if writeErr != nil {
-		accessLogger.Error("error writing the response",
+		logger.Error("error writing the response",
 			zap.Int("http_code", 499),
 			zap.Duration("runtime_seconds", time.Since(t0)),
 			zap.Error(writeErr),
@@ -544,20 +523,14 @@ func (app *App) infoHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	accessLogger.Info("request served",
+	logger.Info("request served",
 		zap.Int("http_code", http.StatusOK),
 		zap.Duration("runtime_seconds", time.Since(t0)),
 	)
 }
 
-func (app *App) lbCheckHandler(w http.ResponseWriter, req *http.Request) {
+func (app *App) lbCheckHandler(w http.ResponseWriter, req *http.Request, logger *zap.Logger) {
 	t0 := time.Now()
-	// TODO (grzkv): Pass logger from above
-	logger := zapwriter.Logger("loadbalancer").
-		With(zap.String("handler", "loadbalancer"))
-	// TODO (grzkv): Pass logger from above
-	accessLogger := zapwriter.Logger("access").
-		With(zap.String("handler", "loadbalancer"))
 
 	if ce := logger.Check(zap.DebugLevel, "loadbalancer"); ce != nil {
 		ce.Write(
@@ -569,7 +542,7 @@ func (app *App) lbCheckHandler(w http.ResponseWriter, req *http.Request) {
 	app.prometheusMetrics.Requests.Inc()
 
 	fmt.Fprintf(w, "Ok\n")
-	accessLogger.Info("lb request served",
+	logger.Info("lb request served",
 		zap.Int("http_code", http.StatusOK),
 		zap.Duration("runtime_seconds", time.Since(t0)),
 	)
