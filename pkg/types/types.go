@@ -254,7 +254,7 @@ func MergeMetrics(metrics [][]Metric, replicaMismatchConfig cfg.RenderReplicaMis
 
 	metricsUnfixedMismatchCount := metricsStat.MismatchCount - metricsStat.FixedMismatchCount
 	if metricsUnfixedMismatchCount > 0 {
-		logger.Warn("metric unfixed replica mismatch observed",
+		logger.Info("metric unfixed replica mismatch observed",
 			zap.Any("replica_mismatched_metrics", mismatchedMetricReports),
 			zap.Int("replica_mismatches_total", metricsStat.MismatchCount),
 			zap.Int("replica_fixed_mismatches_total", metricsStat.FixedMismatchCount),
@@ -284,7 +284,7 @@ var (
 
 type floatEqualityFunc func(a, b float64) bool
 
-func areFloatsApproximatelyEqual(a, b float64) bool {
+func AreFloatsApproximatelyEqual(a, b float64) bool {
 	if a == b {
 		return true
 	}
@@ -350,7 +350,7 @@ func mergeMetrics(metrics []Metric, replicaMismatchConfig cfg.RenderReplicaMisma
 
 	var equalityFunc floatEqualityFunc
 	if replicaMismatchConfig.RenderReplicaMismatchApproximateCheck {
-		equalityFunc = areFloatsApproximatelyEqual
+		equalityFunc = AreFloatsApproximatelyEqual
 	}
 
 	replicaMatchMode := replicaMismatchConfig.RenderReplicaMatchMode
