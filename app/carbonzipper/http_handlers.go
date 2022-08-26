@@ -81,7 +81,7 @@ func (app *App) findHandler(w http.ResponseWriter, req *http.Request, logger *za
 	request := types.NewFindRequest(originalQuery)
 	bs := app.filterBackendByTopLevelDomain([]string{originalQuery})
 	bs = backend.Filter(bs, []string{originalQuery})
-	metrics, errs := backend.Finds(ctx, bs, request)
+	metrics, errs := backend.Finds(ctx, bs, request, app.prometheusMetrics.FindDurationByBackend)
 	err := errorsFanIn(errs, len(bs))
 
 	if ctx.Err() != nil {
@@ -308,7 +308,7 @@ func (app *App) renderHandler(w http.ResponseWriter, req *http.Request, logger *
 	if ctx.Err() != nil {
 		// context was cancelled even if some of the requests succeeded
 		app.prometheusMetrics.RequestCancel.WithLabelValues(
-			"find", ctx.Err().Error(),
+			"render", ctx.Err().Error(),
 		).Inc()
 		span.SetAttribute("error", true)
 		span.SetAttribute("error.message", ctx.Err().Error())
