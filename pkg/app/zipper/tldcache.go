@@ -39,9 +39,6 @@ func probeTopLevelDomains(TLDCache *expirecache.Cache, TLDPrefixes []tldPrefix, 
 				}
 			}
 		}
-		for tld, num := range topLevelDomainCache {
-			ms.TLDCacheHostsPerDomain.WithLabelValues(tld).Set(float64(len(num)))
-		}
 		TLDCache.Set("tlds", topLevelDomainCache, 0, 2*period)
 
 		<-probeTicker.C
