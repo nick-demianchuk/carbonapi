@@ -77,7 +77,6 @@ func New(config cfg.API, lg *zap.Logger, buildVersion string) (*App, error) {
 	}
 	app.requestBlocker.ReloadRules()
 
-	// TODO(gmagnusson): Setup backends
 	backend, err := initBackend(app.config, lg,
 		app.ms.ActiveUpstreamRequests, app.ms.WaitingUpstreamRequests,
 		app.ms.UpstreamLimiterEnters, app.ms.UpstreamLimiterExits)
@@ -212,6 +211,8 @@ func setUpConfig(app *App, logger *zap.Logger) {
 		}
 		app.queryCache = cache.NewReplicatedMemcached(app.config.Cache.Prefix,
 			app.config.Cache.QueryTimeoutMs,
+			app.config.Cache.MemcachedTimeoutMs,
+			app.config.Cache.MemcachedMaxIdleConns,
 			reqsRender,
 			respReadRender,
 			app.ms.CacheTimeouts.WithLabelValues("render"),
@@ -227,6 +228,8 @@ func setUpConfig(app *App, logger *zap.Logger) {
 		}
 		app.findCache = cache.NewReplicatedMemcached(app.config.Cache.Prefix,
 			app.config.Cache.QueryTimeoutMs,
+			app.config.Cache.MemcachedTimeoutMs,
+			app.config.Cache.MemcachedMaxIdleConns,
 			reqsFind,
 			respReadFind,
 			app.ms.CacheTimeouts.WithLabelValues("find"),
