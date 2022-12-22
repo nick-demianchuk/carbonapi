@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -879,6 +880,7 @@ func (app *App) findHandler(w http.ResponseWriter, r *http.Request, lg *zap.Logg
 	}
 	metrics, fromCache, err := app.resolveGlobs(ctx, query, useCache, &toLog, lg)
 	toLog.FromCache = fromCache
+	toLog.HttpCode = http.StatusOK
 	if err == nil {
 		toLog.TotalMetricCount = int64(len(metrics.Matches))
 	} else {
@@ -908,17 +910,15 @@ func (app *App) findHandler(w http.ResponseWriter, r *http.Request, lg *zap.Logg
 		app.ms.RequestCancel.WithLabelValues("find", ctx.Err().Error()).Inc()
 	}
 
-	var contentType string
 	var blob []byte
+	writeFormat := format
 	switch format {
 	case protobufFormat, protobuf3Format:
-		contentType = contentTypeProtobuf
 		blob, err = carbonapi_v2.FindEncoder(metrics)
 	case treejsonFormat, jsonFormat:
-		contentType = contentTypeJSON
 		blob, err = ourJson.FindEncoder(metrics)
 	case "", pickleFormat:
-		contentType = contentTypePickle
+		writeFormat = pickleFormat
 		if app.config.GraphiteWeb09Compatibility {
 			blob, err = pickle.FindEncoderV0_9(metrics)
 		} else {
@@ -926,10 +926,9 @@ func (app *App) findHandler(w http.ResponseWriter, r *http.Request, lg *zap.Logg
 		}
 	case rawFormat:
 		blob = findList(metrics)
-		contentType = rawFormat
 	case completerFormat:
+		writeFormat = jsonFormat
 		blob, err = findCompleter(metrics)
-		contentType = jsonFormat
 	default:
 		err = fmt.Errorf("Unknown format %s", format)
 	}
@@ -940,38 +939,142 @@ func (app *App) findHandler(w http.ResponseWriter, r *http.Request, lg *zap.Logg
 		return
 	}
 
-	if contentType == jsonFormat && jsonp != "" {
-		w.Header().Set("Content-Type", contentTypeJavaScript)
-		if _, writeErr := w.Write([]byte(jsonp)); writeErr != nil {
-			toLog.HttpCode = 499
-			logLevel = zapcore.WarnLevel
-			return
-		}
-		if _, writeErr := w.Write([]byte{'('}); writeErr != nil {
-			toLog.HttpCode = 499
-			logLevel = zapcore.WarnLevel
-			return
-		}
-		if _, writeErr := w.Write(blob); writeErr != nil {
-			toLog.HttpCode = 499
-			logLevel = zapcore.WarnLevel
-			return
-		}
-		if _, writeErr := w.Write([]byte{')'}); writeErr != nil {
-			toLog.HttpCode = 499
-			logLevel = zapcore.WarnLevel
-			return
-		}
-	} else {
-		w.Header().Set("Content-Type", contentType)
-		if _, writeErr := w.Write(blob); writeErr != nil {
-			toLog.HttpCode = 499
-			logLevel = zapcore.WarnLevel
-			return
-		}
+	if writeResponse(ctx, w, blob, writeFormat, jsonp) != nil {
+		toLog.HttpCode = 499
+		logLevel = zapcore.WarnLevel
+		return
 	}
 
 	toLog.HttpCode = http.StatusOK
+}
+
+func (app *App) expandHandler(w http.ResponseWriter, r *http.Request, lg *zap.Logger) {
+	t0 := time.Now()
+	defer func() {
+		d := time.Since(t0).Seconds()
+		app.ms.DurationTotal.WithLabelValues("expand").Observe(d)
+	}()
+
+	ctx, cancel := context.WithTimeout(r.Context(), app.config.Timeouts.Global)
+	defer cancel()
+	uuid := util.GetUUID(ctx)
+
+	app.ms.Requests.Inc()
+
+	leavesOnly := parser.TruthyBool(r.FormValue("leavesOnly"))
+	groupByExpr := parser.TruthyBool(r.FormValue("groupByExpr"))
+	jsonp := r.FormValue("jsonp")
+	useCache := !parser.TruthyBool(r.FormValue("noCache"))
+
+	toLog := carbonapipb.NewAccessLogDetails(r, "expand", &app.config)
+	err := r.ParseForm()
+	if err != nil {
+		writeError(uuid, r, w, http.StatusBadRequest, "error parsing form", "", &toLog)
+		return
+	}
+	queries := r.Form["query"]
+	toLog.Targets = append(toLog.Targets, queries...)
+
+	lg = lg.With(zap.String("request_id", uuid), zap.String("request_type", "expand"))
+	Trace(lg, "received request")
+
+	logLevel := zap.InfoLevel
+	defer func() {
+		app.deferredAccessLogging(lg, r, &toLog, t0, logLevel)
+	}()
+	if len(queries) == 0 {
+		writeError(uuid, r, w, http.StatusBadRequest, "missing parameter `query`", "", &toLog)
+		return
+	}
+
+	var responses []dataTypes.Matches
+	for _, query := range queries {
+		metrics, fromCache, err := app.resolveGlobs(ctx, query, useCache, &toLog, lg)
+		toLog.FromCache = fromCache
+		if err == nil {
+			toLog.TotalMetricCount = int64(len(metrics.Matches))
+		} else {
+			var notFound dataTypes.ErrNotFound
+			switch {
+			case errors.As(err, &notFound):
+				// we can generate 404 for expand, it's graphite-web-1.0 only
+				Trace(lg, "not found")
+				writeError(uuid, r, w, http.StatusNotFound, err.Error(), "", &toLog)
+				logLevel = zapcore.ErrorLevel
+				return
+			case errors.Is(err, context.DeadlineExceeded):
+				writeError(uuid, r, w, http.StatusUnprocessableEntity, "context deadline exceeded", "", &toLog)
+				logLevel = zapcore.ErrorLevel
+				return
+			default:
+				writeError(uuid, r, w, http.StatusUnprocessableEntity, err.Error(), "", &toLog)
+				logLevel = zapcore.ErrorLevel
+				return
+			}
+		}
+		if ctx.Err() != nil {
+			app.ms.RequestCancel.WithLabelValues("expand", ctx.Err().Error()).Inc()
+		}
+		responses = append(responses, metrics)
+	}
+
+	blob, err := expandEncoder(responses, leavesOnly, groupByExpr)
+	if err != nil {
+		writeError(uuid, r, w, http.StatusInternalServerError, err.Error(), "", &toLog)
+		logLevel = zapcore.ErrorLevel
+		return
+	}
+
+	if writeResponse(ctx, w, blob, jsonFormat, jsonp) != nil {
+		toLog.HttpCode = 499
+		logLevel = zapcore.ErrorLevel
+		return
+	}
+
+	toLog.HttpCode = http.StatusOK
+}
+
+func expandEncoder(globs []dataTypes.Matches, leavesOnly bool, groupByExpr bool) ([]byte, error) {
+	var b bytes.Buffer
+	groups := make(map[string][]string)
+	seen := make(map[string]bool)
+	var err error
+	for _, glob := range globs {
+		paths := make([]string, 0, len(glob.Matches))
+		for _, g := range glob.Matches {
+			if leavesOnly && !g.IsLeaf {
+				continue
+			}
+			if _, ok := seen[g.Path]; ok {
+				continue
+			}
+			seen[g.Path] = true
+			paths = append(paths, g.Path)
+		}
+		sort.Strings(paths)
+		groups[glob.Name] = paths
+	}
+	if groupByExpr {
+		// results are map[string][]string
+		data := map[string]map[string][]string{
+			"results": groups,
+		}
+		err = json.NewEncoder(&b).Encode(data)
+	} else {
+		// results are just []string otherwise
+		// so, flatting map
+		flatData := make([]string, 0)
+		for _, group := range groups {
+			flatData = append(flatData, group...)
+		}
+		// sorting flat list one more to mimic graphite-web
+		sort.Strings(flatData)
+		data := map[string][]string{
+			"results": flatData,
+		}
+		err = json.NewEncoder(&b).Encode(data)
+	}
+	return b.Bytes(), err
 }
 
 func getCompleterQuery(query string) string {
@@ -1400,6 +1503,7 @@ func isStepTimeMatching(value []*types.MetricData, defaultStepTime int32) bool {
 var usageMsg = []byte(`
 supported requests:
 	/render/?target=
+	/metrics/expand/?query=
 	/metrics/find/?query=
 	/info/?target=
 	/functions/
