@@ -306,6 +306,8 @@ func (app *App) renderHandler(w http.ResponseWriter, r *http.Request, lg *zap.Lo
 	toLog.Clusters = clustersFromMetricMap(metricMap)
 	toLog.CarbonzipperResponseSizeBytes = int64(size * 8)
 
+	toLog.TotalMetricCount = int64(len(results))
+
 	if ctx.Err() != nil {
 		app.ms.RequestCancel.WithLabelValues("render", ctx.Err().Error()).Inc()
 	}
@@ -704,7 +706,7 @@ func (app *App) renderWriteBody(results []*types.MetricData, form renderForm, r 
 
 	switch form.format {
 	case jsonFormat:
-		if maxDataPoints, _ := strconv.Atoi(r.FormValue("maxDataPoints")); maxDataPoints != 0 {
+		if maxDataPoints, _ := strconv.Atoi(r.FormValue("maxDataPoints")); maxDataPoints > 0 {
 			results = types.ConsolidateJSON(maxDataPoints, results)
 		}
 
@@ -836,7 +838,6 @@ func (app *App) getRenderRequests(ctx context.Context, m parser.MetricRequest, u
 	}
 
 	glob, fromCache, err := app.resolveGlobs(ctx, m.Metric, useCache, toLog, lg)
-	toLog.TotalMetricCount += int64(len(glob.Matches))
 	if err != nil {
 		return nil, err
 	}
