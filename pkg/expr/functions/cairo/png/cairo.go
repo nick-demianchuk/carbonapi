@@ -20,6 +20,7 @@ import (
 	"github.com/bookingcom/carbonapi/pkg/expr/types"
 	"github.com/bookingcom/carbonapi/pkg/parser"
 	dataTypes "github.com/bookingcom/carbonapi/pkg/types"
+	"github.com/pkg/errors"
 
 	"github.com/evmar/gocairo/cairo"
 	"github.com/tebeka/strftime"
@@ -968,19 +969,6 @@ func marshalCairo(p PictureParams, results []*types.MetricData, backend cairoBac
 		yDivisors:   p.YDivisors,
 	}
 
-	// See https://github.com/Automattic/node-canvas/issues/1374#issuecomment-467918480
-	// and https://github.com/freedesktop/cairo/blob/929262dd54ffae81721ffe9b2c59faa7b045c663/src/cairo-image-surface.c#L59-L62
-	maxImageSize := float64(32767)
-	if params.width >= maxImageSize {
-		return nil, fmt.Errorf("Invalid picture width %g, should be < %g", params.width, maxImageSize)
-	}
-	if params.height >= maxImageSize {
-		return nil, fmt.Errorf("Invalid picture height %g, should be < %g", params.height, maxImageSize)
-	}
-	if params.pixelRatio >= maxImageSize {
-		return nil, fmt.Errorf("Invalid picture pixelRatio %g, should be < %g", params.pixelRatio, maxImageSize)
-	}
-
 	margin := float64(params.margin)
 	params.area.xmin = margin + 10
 	params.area.xmax = params.width - margin
@@ -1000,7 +988,10 @@ func marshalCairo(p PictureParams, results []*types.MetricData, backend cairoBac
 		s := svgSurfaceCreate(tmpfile.Name(), params.width, params.height, params.pixelRatio)
 		surface = s.Surface
 	case cairoPNG:
-		s := imageSurfaceCreate(cairo.FormatARGB32, params.width, params.height, params.pixelRatio)
+		s, err := imageSurfaceCreate(cairo.FormatARGB32, params.width, params.height, params.pixelRatio)
+		if err != nil {
+			return nil, errors.Wrap(err, "could not create image surface via cairo")
+		}
 		surface = s.Surface
 	}
 	cr := createContext(surface, params.pixelRatio)
