@@ -54,10 +54,7 @@ func MakeTimeLag(consumerMetric, producerMetric *types.MetricData, name string) 
 		}
 
 		// Move Producer index to the right as much as possible
-		for {
-			if pIndex >= (int32)(i) || (pIndex+1) >= pLen || producerMetric.Values[pIndex+1] > v {
-				break
-			}
+		for pIndex < (int32)(i) && (pIndex+1) < pLen && producerMetric.Values[pIndex+1] <= v {
 			pIndex += 1
 		}
 
