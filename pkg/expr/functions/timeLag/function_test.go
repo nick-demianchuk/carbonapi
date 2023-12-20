@@ -32,11 +32,11 @@ func TestTimeLagSeriesMultiReturn(t *testing.T) {
 		{
 			"timeLagSeries(metric1,metric2)",
 			map[parser.MetricRequest][]*types.MetricData{
-				{"metric2", 0, 1}: {
-					types.MakeMetricData("metric2", []float64{1, 100, 100, 100, 100, 100, 100, 100, 100, 200, 200, 200, 200, 200}, 1, now32),
-				},
 				{"metric1", 0, 1}: {
 					types.MakeMetricData("metric1", []float64{1, 30, 40, 60, 80, 100, 100, 100, 100, 100, 150, 200, 200, 200}, 1, now32),
+				},
+				{"metric2", 0, 1}: {
+					types.MakeMetricData("metric2", []float64{1, 100, 100, 100, 100, 100, 100, 100, 100, 200, 200, 200, 200, 200}, 1, now32),
 				},
 			},
 			"timeLagSeries",
@@ -47,11 +47,11 @@ func TestTimeLagSeriesMultiReturn(t *testing.T) {
 		{
 			"timeLagSeries(metric1,metric2)",
 			map[parser.MetricRequest][]*types.MetricData{
-				{"metric2", 0, 1}: {
-					types.MakeMetricData("metric2", []float64{50, 50, 50, 90, 90, 90, 90, 90, 90, 90}, 1, now32),
-				},
 				{"metric1", 0, 1}: {
 					types.MakeMetricData("metric1", []float64{50, 50, 50, 60, 70, 75, 80, 90, 90, 90}, 1, now32),
+				},
+				{"metric2", 0, 1}: {
+					types.MakeMetricData("metric2", []float64{50, 50, 50, 90, 90, 90, 90, 90, 90, 90}, 1, now32),
 				},
 			},
 			"timeLagSeries",
