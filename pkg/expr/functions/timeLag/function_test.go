@@ -30,23 +30,33 @@ func TestTimeLagSeriesMultiReturn(t *testing.T) {
 
 	tests := []th.MultiReturnEvalTestItem{
 		{
-			"timeLagSeries(metric[12],metric2)",
+			"timeLagSeries(metric1,metric2)",
 			map[parser.MetricRequest][]*types.MetricData{
-				{"metric[12]", 0, 1}: {
-					types.MakeMetricData("metric1", []float64{1, 2, 3, 4, 5}, 1, now32),
-					types.MakeMetricData("metric2", []float64{2, 4, 6, 8, 10}, 1, now32),
+				{"metric2", 0, 1}: {
+					types.MakeMetricData("metric2", []float64{1, 100, 100, 100, 100, 100, 100, 100, 100, 200, 200, 200, 200, 200}, 1, now32),
 				},
 				{"metric1", 0, 1}: {
-					types.MakeMetricData("metric1", []float64{1, 2, 3, 4, 5}, 1, now32),
-				},
-				{"metric2", 0, 1}: {
-					types.MakeMetricData("metric2", []float64{2, 4, 6, 8, 10}, 1, now32),
+					types.MakeMetricData("metric1", []float64{1, 30, 40, 60, 80, 100, 100, 100, 100, 100, 150, 200, 200, 200}, 1, now32),
 				},
 			},
 			"timeLagSeries",
 			map[string][]*types.MetricData{
-				"timeLagSeries(metric1,metric2)": {types.MakeMetricData("timeLagSeries(metric1,metric2)", []float64{math.NaN(), 1, 2, 2, 3}, 1, now32)},
-				"timeLagSeries(metric2,metric2)": {types.MakeMetricData("timeLagSeries(metric2,metric2)", []float64{0, 0, 0, 0, 0}, 1, now32)},
+				"timeLagSeries(metric1,metric2)": {types.MakeMetricData("timeLagSeries(metric1,metric2)", []float64{0, 1, 2, 3, 4, 0, 0, 0, 0, 1, 2, 0, 0, 0}, 1, now32)},
+			},
+		},
+		{
+			"timeLagSeries(metric1,metric2)",
+			map[parser.MetricRequest][]*types.MetricData{
+				{"metric2", 0, 1}: {
+					types.MakeMetricData("metric2", []float64{50, 50, 50, 90, 90, 90, 90, 90, 90, 90}, 1, now32),
+				},
+				{"metric1", 0, 1}: {
+					types.MakeMetricData("metric1", []float64{50, 50, 50, 60, 70, 75, 80, 90, 90, 90}, 1, now32),
+				},
+			},
+			"timeLagSeries",
+			map[string][]*types.MetricData{
+				"timeLagSeries(metric1,metric2)": {types.MakeMetricData("timeLagSeries(metric1,metric2)", []float64{0, 0, 0, 1, 2, 3, 4, 0, 0, 0}, 1, now32)},
 			},
 		},
 	}
@@ -58,7 +68,6 @@ func TestTimeLagSeriesMultiReturn(t *testing.T) {
 			th.TestMultiReturnEvalExpr(t, &tt)
 		})
 	}
-
 }
 
 func TestTimeLagSeries(t *testing.T) {
@@ -72,7 +81,7 @@ func TestTimeLagSeries(t *testing.T) {
 				{"metric2", 0, 1}: {types.MakeMetricData("metric2", []float64{2, math.NaN(), 3, math.NaN(), 5, 12}, 1, now32)},
 			},
 			[]*types.MetricData{types.MakeMetricData("timeLagSeries(metric1,metric2)",
-				[]float64{math.NaN(), math.NaN(), math.NaN(), 1, 2, 0}, 1, now32)},
+				[]float64{math.NaN(), math.NaN(), math.NaN(), math.NaN(), math.NaN(), 0}, 1, now32)},
 		},
 		{
 			"timeLagSeries(metric[12])",
@@ -83,7 +92,7 @@ func TestTimeLagSeries(t *testing.T) {
 				},
 			},
 			[]*types.MetricData{types.MakeMetricData("timeLagSeries(metric[12])",
-				[]float64{math.NaN(), math.NaN(), math.NaN(), 1, 2, 0}, 1, now32)},
+				[]float64{math.NaN(), math.NaN(), math.NaN(), math.NaN(), math.NaN(), 0}, 1, now32)},
 		},
 		{
 			"timeLagSeries(metric1,metric2)",
@@ -108,6 +117,7 @@ func TestTimeLagSeries(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		testName := tt.Target
+
 		t.Run(testName, func(t *testing.T) {
 			th.TestEvalExpr(t, &tt)
 		})
